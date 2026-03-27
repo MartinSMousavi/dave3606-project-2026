@@ -22,23 +22,42 @@
             <tbody id="inventory"></tbody>
         </table>
         <script>
-            const urlParameters = new URLSearchParams(document.location.search);
-            const setId = urlParameters.get("id");
+            const params = new URLSearchParams(window.location.search);
+            const setId = params.get("id");
+        
             fetch(`/api/set?id=${setId}`)
-                .then(function(setData) { return setData.json(); })
-                .then(function(setJson) {
-                    const inventoryTable = document.getElementById("inventory");
-                    const inventoryRow = document.createElement("tr");
-                    inventoryRow.innerHTML = (
-                        "<td>Example row</td>" +
-                        "<td>to show how to</td>" +
-                        "<td>dynamically construct HTML</td>" +
-                        "<td>in JavaScript</td>"
-                    )
-                    inventoryTable.appendChild(inventoryRow);
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById("error").textContent = data.error;
+                        return;
+                    }
+        
+                    // Set info
+                    document.getElementById("setId").textContent = data.id;
+                    document.getElementById("setName").textContent = data.name;
+        
+                    const table = document.getElementById("inventory");
+                    table.innerHTML = "";
+        
+                    data.inventory.forEach(item => {
+                        const row = document.createElement("tr");
+        
+                        row.innerHTML = `
+                            <td>
+                                ${item.preview_image_url ? `<img src="${item.preview_image_url}" width="50">` : ""}
+                            </td>
+                            <td>${item.name}</td>
+                            <td>${item.color_id}</td>
+                            <td>${item.count}</td>
+                        `;
+        
+                        table.appendChild(row);
+                    });
                 })
-                .catch(function(err) {
-                    document.getElementById("error").textContent = "Failed to load data: " + err;
+                .catch(err => {
+                    document.getElementById("error").textContent =
+                        "Failed to load data: " + err;
                 });
         </script>
     </body>
