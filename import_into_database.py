@@ -44,17 +44,23 @@ for i, s in enumerate(sets):
         (s["setNumber"], s["name"], None if year == 0 else year, s["category"], s["previewImageUrl"])
     )
 
+
 for i, s in enumerate(sets):
+    inventory = defaultdict(lambda: 0)
     for inv in s["inventory"] or []:
+        inventory[(inv["brickId"], inv["colorId"])] += inv["count"]
+
+    for (brick_type_id, color_id), count in inventory.items():
         cur.execute(
             """
             insert into lego_inventory(set_id, brick_type_id, color_id, count)
             values (%s, %s, %s, %s)
             """,
-            (s["setNumber"], inv["brickId"], inv["colorId"], inv["count"])
+            (s["setNumber"], brick_type_id, color_id, count),
         )
+
     if i % 100 == 0:
-        print(i)
+        print(f"Inventory progress: {i}")
 
 conn.commit()
 
