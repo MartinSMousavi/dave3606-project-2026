@@ -19,7 +19,7 @@ DB_CONFIG = {
 CACHE_SIZE = 100
 cache = OrderedDict()
 
-MAGIC_NUMBER = 0x4C45474F
+MAGIC_NUMBER = 0x4C45474F  # "LEGO" in ASCII
 VERSION = 0x01
 
 
@@ -31,14 +31,6 @@ def encode_string(s):
     return struct.pack('>H', len(encoded)) + encoded
 
 
-def decode_string(data, offset):
-    """Decode a length-prefixed string from bytes"""
-    length = struct.unpack_from('>H', data, offset)[0]
-    offset += 2
-    string = data[offset:offset + length].decode('utf-8')
-    return string, offset + length
-
-
 def write_binary_set(set_data, inventory):
     """Write Lego set data to binary format"""
     buffer = bytearray()
@@ -46,16 +38,15 @@ def write_binary_set(set_data, inventory):
 
     buffer.extend(struct.pack('>I', MAGIC_NUMBER))
     buffer.extend(struct.pack('>B', VERSION))
-    buffer.extend(struct.pack('>B', 0))  
-    buffer.extend(struct.pack('>H', len(inventory)))  
+    buffer.extend(struct.pack('>B', 0))
+    buffer.extend(struct.pack('>H', len(inventory))) 
     
-
     buffer.extend(encode_string(set_data['id']))
     buffer.extend(encode_string(set_data['name']))
     buffer.extend(struct.pack('>i', set_data.get('year', 0) or 0))
     buffer.extend(encode_string(set_data.get('category', '')))
     buffer.extend(encode_string(set_data.get('preview_image_url', '')))
-
+    
     for brick in inventory:
         buffer.extend(encode_string(brick['brick_type_id']))
         buffer.extend(struct.pack('>i', brick['color_id']))
@@ -134,7 +125,6 @@ def apiSet():
         error = {"error": "Missing required query parameter: id"}
         return Response(json.dumps(error, indent=4), status=400, content_type="application/json")
 
-
     if format_type == "binary":
         return get_binary_set(set_id)
 
@@ -143,11 +133,12 @@ def apiSet():
 
 def get_binary_set(set_id):
     """Fetch Lego set data and return as binary format"""
-    if set_id in cache:
+    cache_key = f"{set_id}:binary"
+    if cache_key in cache:
         print("CACHE HIT (binary)")
-        result = cache.pop(set_id)
-        cache[set_id] = result
-        binary_data = write_binary_set(result['set'], result['inventory'])
+        result = cache.pop(cache_key)
+        cache[cache_key] = result
+        binary_data = result if isinstance(result, bytes) else write_binary_set(result['set'], result['inventory'])
         return Response(
             binary_data,
             content_type="application/octet-stream",
@@ -161,9 +152,9 @@ def get_binary_set(set_id):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                select id, name, year, category, preview_image_url
-                from lego_set
-                where id = %s
+                SELECT id, name, year, category, preview_image_url
+                FROM lego_set
+                WHERE id = %s
             """, (set_id,))
             row = cur.fetchone()
 
@@ -174,18 +165,18 @@ def get_binary_set(set_id):
             set_id_db, name, year, category, preview_image_url = row
 
             cur.execute("""
-                select
+                SELECT
                     i.brick_type_id,
                     i.color_id,
                     b.name,
                     b.preview_image_url,
                     i.count
-                from lego_inventory i
-                join lego_brick b
-                  on b.brick_type_id = i.brick_type_id
-                 and b.color_id = i.color_id
-                where i.set_id = %s
-                order by i.brick_type_id, i.color_id
+                FROM lego_inventory i
+                JOIN lego_brick b
+                  ON b.brick_type_id = i.brick_type_id
+                 AND b.color_id = i.color_id
+                WHERE i.set_id = %s
+                ORDER BY i.brick_type_id, i.color_id
             """, (set_id,))
             inventory_rows = cur.fetchall()
 
@@ -211,13 +202,15 @@ def get_binary_set(set_id):
         for r in inventory_rows
     ]
 
+    binary_data = write_binary_set(set_data, inventory)
+
     print("CACHE MISS (binary)")
+    cache_key = f"{set_id}:binary"
     if len(cache) >= CACHE_SIZE:
         cache.popitem(last=False)
     
-    cache[set_id] = {"set": set_data, "inventory": inventory}
+    cache[cache_key] = binary_data
 
-    binary_data = write_binary_set(set_data, inventory)
     return Response(
         binary_data,
         content_type="application/octet-stream",
@@ -231,7 +224,7 @@ def get_binary_set(set_id):
 def get_json_set(set_id):
     """Original JSON endpoint logic"""
     if set_id in cache:
-        print("CACHE HIT")
+        print("CACHE HIT (json)")
         result = cache.pop(set_id)
         cache[set_id] = result
         return Response(json.dumps(result, indent=4), content_type="application/json")
@@ -240,9 +233,9 @@ def get_json_set(set_id):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                select id, name, year, category, preview_image_url
-                from lego_set
-                where id = %s
+                SELECT id, name, year, category, preview_image_url
+                FROM lego_set
+                WHERE id = %s
             """, (set_id,))
             row = cur.fetchone()
 
@@ -253,18 +246,18 @@ def get_json_set(set_id):
             set_id_db, name, year, category, preview_image_url = row
 
             cur.execute("""
-                select
+                SELECT
                     i.brick_type_id,
                     i.color_id,
                     b.name,
                     b.preview_image_url,
                     i.count
-                from lego_inventory i
-                join lego_brick b
-                  on b.brick_type_id = i.brick_type_id
-                 and b.color_id = i.color_id
-                where i.set_id = %s
-                order by i.brick_type_id, i.color_id
+                FROM lego_inventory i
+                JOIN lego_brick b
+                  ON b.brick_type_id = i.brick_type_id
+                 AND b.color_id = i.color_id
+                WHERE i.set_id = %s
+                ORDER BY i.brick_type_id, i.color_id
             """, (set_id,))
             inventory_rows = cur.fetchall()
 
@@ -291,7 +284,7 @@ def get_json_set(set_id):
         "inventory": inventory,
     }
 
-    print("CACHE MISS")
+    print("CACHE MISS (json)")
     if len(cache) >= CACHE_SIZE:
         cache.popitem(last=False)
 
