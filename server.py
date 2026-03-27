@@ -81,8 +81,12 @@ def apiSet():
     if not set_id:
         error = {"error": "Missing required query parameter: id"}
         return Response(json.dumps(error, indent=4), status=400, content_type="application/json")
- 
-    conn = psycopg.connect(**DB_CONFIG)
+     if set_id in cache:
+        result = cache.pop(set_id)
+        cache[set_id] = result  # mark as recently used
+        return Response(json.dumps(result, indent=4), content_type="application/json")
+     
+        conn = psycopg.connect(**DB_CONFIG)
     try:
         with conn.cursor() as cur:
  
@@ -140,6 +144,10 @@ def apiSet():
         "preview_image_url": preview_image_url,
         "inventory":         inventory,
     }
+     if len(cache) >= CACHE_SIZE:
+         cache.popitem(last=False)  # remove least recently used
+     
+     cache[set_id] = result
  
     return Response(json.dumps(result, indent=4), content_type="application/json")
  
