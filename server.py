@@ -15,7 +15,7 @@ DB_CONFIG = {
     "password": "bricks",
 }
 
-# ✅ LRU Cache (max 100 sets)
+
 CACHE_SIZE = 100
 cache = OrderedDict()
 
@@ -67,7 +67,7 @@ def sets():
         content_type=f"text/html; charset={encoding}",
         headers={
             "Content-Encoding": "gzip",
-            "Cache-Control": "public, max-age=60"  # ✅ browser cache
+            "Cache-Control": "public, max-age=60"  
         },
     )
 
@@ -87,18 +87,19 @@ def apiSet():
         error = {"error": "Missing required query parameter: id"}
         return Response(json.dumps(error, indent=4), status=400, content_type="application/json")
 
-    # ✅ CACHE HIT
+
     if set_id in cache:
+        print("CACHE HIT")
         result = cache.pop(set_id)
-        cache[set_id] = result  # mark as recently used
+        cache[set_id] = result  
         return Response(json.dumps(result, indent=4), content_type="application/json")
 
-    # ❌ CACHE MISS → query database
+
     conn = psycopg.connect(**DB_CONFIG)
     try:
         with conn.cursor() as cur:
 
-            # Fetch set metadata
+
             cur.execute("""
                 select id, name, year, category, preview_image_url
                 from lego_set
@@ -112,7 +113,7 @@ def apiSet():
 
             set_id_db, name, year, category, preview_image_url = row
 
-            # Fetch inventory
+
             cur.execute("""
                 select
                     i.brick_type_id,
@@ -151,10 +152,10 @@ def apiSet():
         "preview_image_url": preview_image_url,
         "inventory": inventory,
     }
-
-    # ✅ STORE IN CACHE (LRU)
+    
+    print("CACHE MISS")
     if len(cache) >= CACHE_SIZE:
-        cache.popitem(last=False)  # remove least recently used
+        cache.popitem(last=False)
 
     cache[set_id] = result
 
