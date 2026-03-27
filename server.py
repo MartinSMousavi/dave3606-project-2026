@@ -2,6 +2,7 @@ import gzip
 import json
 import html
 import psycopg
+import struct
 from flask import Flask, Response, request
 from collections import OrderedDict
 
@@ -15,9 +16,18 @@ DB_CONFIG = {
     "password": "bricks",
 }
 
-
 CACHE_SIZE = 100
 cache = OrderedDict()
+
+
+# -----------------------
+# Helper for binary format
+# -----------------------
+def write_string(buf, s):
+    data = s.encode("utf-8")
+    buf += struct.pack("<I", len(data))
+    buf += data
+    return buf
 
 
 @app.route("/")
@@ -67,7 +77,7 @@ def sets():
         content_type=f"text/html; charset={encoding}",
         headers={
             "Content-Encoding": "gzip",
-            "Cache-Control": "public, max-age=60"  
+            "Cache-Control": "public, max-age=60"
         },
     )
 
@@ -87,18 +97,15 @@ def apiSet():
         error = {"error": "Missing required query parameter: id"}
         return Response(json.dumps(error, indent=4), status=400, content_type="application/json")
 
-
     if set_id in cache:
         print("CACHE HIT")
         result = cache.pop(set_id)
-        cache[set_id] = result  
+        cache[set_id] = result
         return Response(json.dumps(result, indent=4), content_type="application/json")
-
 
     conn = psycopg.connect(**DB_CONFIG)
     try:
         with conn.cursor() as cur:
-
 
             cur.execute("""
                 select id, name, year, category, preview_image_url
@@ -112,7 +119,6 @@ def apiSet():
                 return Response(json.dumps(error, indent=4), status=404, content_type="application/json")
 
             set_id_db, name, year, category, preview_image_url = row
-
 
             cur.execute("""
                 select
@@ -152,7 +158,7 @@ def apiSet():
         "preview_image_url": preview_image_url,
         "inventory": inventory,
     }
-    
+
     print("CACHE MISS")
     if len(cache) >= CACHE_SIZE:
         cache.popitem(last=False)
@@ -160,6 +166,79 @@ def apiSet():
     cache[set_id] = result
 
     return Response(json.dumps(result, indent=4), content_type="application/json")
+
+
+# -----------------------
+# NEW BINARY ENDPOINT
+# -----------------------
+@app.route("/api/set_binary")
+def apiSetBinary():
+    set_id = request.args.get("id")
+
+    if not set_id:
+        return Response(b"Missing id", status=400)
+
+    conn = psycopg.connect(**DB_CONFIG)
+    try:
+        with conn.cursor() as cur:
+
+            cur.execute("""
+                select id, name, year, category, preview_image_url
+                from lego_set
+                where id = %s
+            """, (set_id,))
+            row = cur.fetchone()
+
+            if row is None:
+                return Response(b"Not found", status=404)
+
+            set_id_db, name, year, category, preview_image_url = row
+
+            cur.execute("""
+                select
+                    i.brick_type_id,
+                    i.color_id,
+                    b.name,
+                    b.preview_image_url,
+                    i.count
+                from lego_inventory i
+                join lego_brick b
+                  on b.brick_type_id = i.brick_type_id
+                 and b.color_id = i.color_id
+                where i.set_id = %s
+                order by i.brick_type_id, i.color_id
+            """, (set_id,))
+            inventory_rows = cur.fetchall()
+
+    finally:
+        conn.close()
+
+    buf = b""
+
+    # Header
+    buf += b"LEGO"
+    buf += struct.pack("<B", 1)
+
+    # Set data
+    buf = write_string(buf, set_id_db)
+    buf = write_string(buf, name)
+    buf += struct.pack("<I", year)
+    buf = write_string(buf, category)
+    buf = write_string(buf, preview_image_url)
+
+    # Inventory
+    buf += struct.pack("<I", len(inventory_rows))
+
+    for r in inventory_rows:
+        brick_type_id, color_id, bname, img_url, count = r
+
+        buf = write_string(buf, brick_type_id)
+        buf += struct.pack("<I", color_id)
+        buf = write_string(buf, bname)
+        buf = write_string(buf, img_url)
+        buf += struct.pack("<I", count)
+
+    return Response(buf, content_type="application/octet-stream")
 
 
 if __name__ == "__main__":
