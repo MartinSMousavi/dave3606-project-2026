@@ -5,7 +5,7 @@ import psycopg
 import struct
 from flask import Flask, Response, request
 from collections import OrderedDict
-
+import time
 app = Flask(__name__)
 
 DB_CONFIG = {
@@ -89,15 +89,18 @@ def legoSet():
 @app.route("/api/set")
 def apiSet():
     set_id = request.args.get("id")
-
+    start_time = time.time()
     if not set_id:
         error = {"error": "Missing required query parameter: id"}
         return Response(json.dumps(error, indent=4), status=400, content_type="application/json")
 
     if set_id in cache:
-        print("CACHE HIT")
         result = cache.pop(set_id)
         cache[set_id] = result
+        elapsed_ms = (time.time() - start_time) * 1000
+        print(f"CACHE HIT for {set_id}: {elapsed_ms:.2f}ms")
+        
+        return Response(json.dumps(result, indent=4), content_type="application/json")
         return Response(json.dumps(result, indent=4), content_type="application/json")
 
     conn = psycopg.connect(**DB_CONFIG)
@@ -156,7 +159,9 @@ def apiSet():
         "inventory": inventory,
     }
 
-    print("CACHE MISS")
+    elapsed_ms = (time.time() - start_time) * 1000
+    print(f"CACHE MISS for {set_id}: {elapsed_ms:.2f}ms (Database query)")
+
     if len(cache) >= CACHE_SIZE:
         cache.popitem(last=False)
 
